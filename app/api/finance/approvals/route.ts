@@ -153,7 +153,9 @@ export async function POST(req: Request) {
     }
 
     if (action === "approve") {
-      // Increment stock via DB RPC
+      // The RPC (migration 024) atomically transitions the GRN from
+      // AWAITING_FINANCE_APPROVAL to GRN_APPROVED and increments stock once.
+      // A concurrent or repeated call fails inside the DB and changes nothing.
       const { error: rpcError } = await supabaseAdmin.rpc("increment_stock_after_grn", {
         p_grn_id: entity_id,
         p_approved_by: user.id,
@@ -161,38 +163,13 @@ export async function POST(req: Request) {
       });
 
       if (rpcError) {
-        // If RPC fails because status not yet GRN_APPROVED, update status first then retry
-        const { error: statusError } = await supabaseAdmin
-          .from("supplier_grns")
-          .update({
-            status: "GRN_APPROVED",
-            approved_by: user.id,
-            approved_at: new Date().toISOString(),
-            approval_notes: notes ?? null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", entity_id);
-
-        if (statusError) throw statusError;
-
-        const { error: rpcRetryError } = await supabaseAdmin.rpc("increment_stock_after_grn", {
-          p_grn_id: entity_id,
-          p_approved_by: user.id,
-          p_approval_notes: notes ?? null,
-        });
-        if (rpcRetryError) throw rpcRetryError;
-      } else {
-        // Update status in case RPC doesn't
-        await supabaseAdmin
-          .from("supplier_grns")
-          .update({
-            status: "GRN_APPROVED",
-            approved_by: user.id,
-            approved_at: new Date().toISOString(),
-            approval_notes: notes ?? null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", entity_id);
+        if (rpcError.message?.includes("not awaiting approval")) {
+          return NextResponse.json(
+            { error: "Supplier GRN was already processed by another approval" },
+            { status: 409 },
+          );
+        }
+        throw rpcError;
       }
     } else {
       await supabaseAdmin
