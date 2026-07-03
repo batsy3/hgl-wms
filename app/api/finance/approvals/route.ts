@@ -91,7 +91,10 @@ export async function POST(req: Request) {
     }
 
     const newStatus = action === "approve" ? "APPROVED_FOR_ISSUE" : "CANCELLED";
-    const { error: updateError } = await supabaseAdmin
+    // Conditional transition: only the request that actually flips the status
+    // away from PENDING_APPROVAL proceeds, so a concurrent approval cannot
+    // cause a duplicate transition/audit/notification.
+    const { data: updatedRows, error: updateError } = await supabaseAdmin
       .from("transfer_requests")
       .update({
         status: newStatus,
@@ -100,9 +103,17 @@ export async function POST(req: Request) {
         finance_approval_notes: notes ?? null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", entity_id);
+      .eq("id", entity_id)
+      .eq("status", "PENDING_APPROVAL")
+      .select("id");
 
     if (updateError) throw updateError;
+    if (!updatedRows || updatedRows.length === 0) {
+      return NextResponse.json(
+        { error: "Transfer was already processed by another approval" },
+        { status: 409 },
+      );
+    }
 
     const message = await buildTransferNotificationMessage({
       transferId: entity_id,
