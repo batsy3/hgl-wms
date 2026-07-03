@@ -206,7 +206,9 @@ export async function POST(req: Request) {
           .eq("id", entity_id);
       }
     } else {
-      await supabaseAdmin
+      // Conditional transition: a concurrent decision on the same GRN cannot
+      // cause a duplicate transition/audit/notification.
+      const { data: rejectedRows, error: rejectError } = await supabaseAdmin
         .from("supplier_grns")
         .update({
           status: "GRN_REJECTED",
@@ -215,7 +217,17 @@ export async function POST(req: Request) {
           approval_notes: notes ?? null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", entity_id);
+        .eq("id", entity_id)
+        .eq("status", "AWAITING_FINANCE_APPROVAL")
+        .select("id");
+
+      if (rejectError) throw rejectError;
+      if (!rejectedRows || rejectedRows.length === 0) {
+        return NextResponse.json(
+          { error: "Supplier GRN was already processed by another approval" },
+          { status: 409 },
+        );
+      }
     }
 
     const message = await buildSupplierGrnNotificationMessage({
@@ -305,7 +317,9 @@ export async function POST(req: Request) {
         });
       }
     } else {
-      const { error: updateError } = await supabaseAdmin
+      // Conditional transition: a concurrent decision on the same return
+      // cannot cause a duplicate transition/audit/notification.
+      const { data: rejectedRows, error: updateError } = await supabaseAdmin
         .from("return_requests")
         .update({
           status: "REJECTED",
@@ -314,9 +328,17 @@ export async function POST(req: Request) {
           finance_approval_notes: notes ?? null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", entity_id);
+        .eq("id", entity_id)
+        .eq("status", "AWAITING_FINANCE_APPROVAL")
+        .select("id");
 
       if (updateError) throw updateError;
+      if (!rejectedRows || rejectedRows.length === 0) {
+        return NextResponse.json(
+          { error: "Return was already processed by another approval" },
+          { status: 409 },
+        );
+      }
 
       const message = await buildReturnNotificationMessage({
         returnId: entity_id,
@@ -415,7 +437,9 @@ export async function POST(req: Request) {
         }),
       ]).catch((e) => console.error("intra-transfer approval notify failed", e));
     } else {
-      const { error: updateError } = await supabaseAdmin
+      // Conditional transition: a concurrent decision on the same transfer
+      // cannot cause a duplicate transition/audit/notification.
+      const { data: rejectedRows, error: updateError } = await supabaseAdmin
         .from("intra_warehouse_transfers")
         .update({
           status: "CANCELLED",
@@ -424,9 +448,17 @@ export async function POST(req: Request) {
           finance_notes: notes ?? null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", entity_id);
+        .eq("id", entity_id)
+        .eq("status", "PENDING_FINANCE_APPROVAL")
+        .select("id");
 
       if (updateError) throw updateError;
+      if (!rejectedRows || rejectedRows.length === 0) {
+        return NextResponse.json(
+          { error: "Intra-transfer was already processed by another approval" },
+          { status: 409 },
+        );
+      }
 
       const message = await buildIntraTransferNotificationMessage({
         transferId: entity_id,
