@@ -115,7 +115,7 @@ async function resolveRecipients(opts: {
     // role-holders for the correct SBU only.
     const sbuId = await inferSbuId(opts.related_entity_id);
 
-    const { data: profiles } = sbuId
+    let { data: profiles } = sbuId
       ? await supabaseAdmin
           .from("profiles")
           .select("id, whatsapp_number")
@@ -127,6 +127,18 @@ async function resolveRecipients(opts: {
           .select("id, whatsapp_number")
           .eq("role", opts.user_role)
           .eq("is_active", true);
+
+    // If we scoped to an SBU but found no role-holders there, fall back to a
+    // global broadcast for the role so critical notifications (e.g. Finance)
+    // are not silently dropped.
+    if ((!profiles || profiles.length === 0) && sbuId) {
+      const { data: globalProfiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id, whatsapp_number")
+        .eq("role", opts.user_role)
+        .eq("is_active", true);
+      profiles = globalProfiles as any;
+    }
     if (!profiles || profiles.length === 0) return [];
 
     const out = await Promise.all(
