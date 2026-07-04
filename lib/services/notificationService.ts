@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "../supabaseServer";
 import type { Notification } from "../models/shared";
 import { dispatchToChannels } from "../notifications/channels";
+import { humanizeLabel } from "../notifications/messages";
 
 interface NotificationRecipientProfile {
   id: string;
@@ -55,7 +56,7 @@ export async function createNotification(input: NotifyInput): Promise<Notificati
   // Optionally fan out to email + WhatsApp channels.
   if (input.dispatchChannels) {
     try {
-      const subject = input.subject ?? input.type.replace(/_/g, " ");
+      const subject = input.subject ?? humanizeLabel(input.type);
       const recipients = await resolveRecipients({
         user_id: input.user_id,
         user_role: input.user_role,
