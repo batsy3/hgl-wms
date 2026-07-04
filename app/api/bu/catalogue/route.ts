@@ -52,12 +52,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "sbu_id query param is required" }, { status: 400 });
   }
 
-  // Query A: products from APPROVED Supplier GRNs tagged to this SBU
+  // Query A: products from approved Supplier GRNs tagged to this SBU
+  // (status enum is AWAITING_FINANCE_APPROVAL / GRN_APPROVED / GRN_REJECTED)
   const { data: supplierGrnLines } = await supabaseAdmin
     .from("supplier_grn_line_items")
     .select("product_id, supplier_grns!inner(sbu_id, status)")
     .eq("supplier_grns.sbu_id", effectiveSbuId)
-    .eq("supplier_grns.status", "APPROVED");
+    .eq("supplier_grns.status", "GRN_APPROVED");
 
   const supplierProductIds = new Set<string>(
     (supplierGrnLines ?? []).map((r: any) => r.product_id as string),
