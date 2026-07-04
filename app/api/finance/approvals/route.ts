@@ -523,16 +523,20 @@ export async function GET(req: Request) {
       )
       .eq("status", "PENDING_FINANCE_APPROVAL")
       .order("created_at", { ascending: false }),
+    // Count decisions from the immutable audit log, not current statuses:
+    // covers all entity types (transfers, GRNs, returns, intra-transfers,
+    // variance proposals), doesn't shrink when an approved transfer moves on
+    // to ISSUED, and doesn't count BU-cancelled transfers as rejections.
     supabaseAdmin
-      .from("transfer_requests")
+      .from("audit_logs")
       .select("id", { count: "exact", head: true })
-      .eq("status", "APPROVED_FOR_ISSUE")
-      .gte("approved_at", todayStart.toISOString()),
+      .in("action", ["finance_approve", "variance_proposal_approved"])
+      .gte("created_at", todayStart.toISOString()),
     supabaseAdmin
-      .from("transfer_requests")
+      .from("audit_logs")
       .select("id", { count: "exact", head: true })
-      .eq("status", "CANCELLED")
-      .gte("updated_at", todayStart.toISOString()),
+      .in("action", ["finance_reject", "variance_proposal_rejected"])
+      .gte("created_at", todayStart.toISOString()),
   ]);
 
   // Enrich transfer requests with requester full_name from profiles
