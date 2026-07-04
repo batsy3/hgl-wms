@@ -83,7 +83,7 @@ export async function GET(req: Request) {
   // Fetch product details for the catalogue
   const { data: products, error } = await supabaseAdmin
     .from("products")
-    .select("id, name, sku, unit_of_measure, unit_cost")
+    .select("id, name, sku, unit_of_measure, unit_cost, stock_quantity")
     .in("id", allProductIds)
     .eq("is_active", true)
     .order("name", { ascending: true });
@@ -100,6 +100,7 @@ export async function GET(req: Request) {
     sku: p.sku,
     uom: p.unit_of_measure,
     unit_cost: p.unit_cost ?? null,
+    stock_quantity: p.stock_quantity ?? 0,
   }));
 
   return NextResponse.json(catalogue);
