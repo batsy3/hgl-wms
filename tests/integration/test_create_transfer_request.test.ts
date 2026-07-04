@@ -67,6 +67,13 @@ describe("transferService.createTransferRequest", () => {
     const notifChain = buildChain(Promise.resolve({ data: {}, error: null }));
     // Stub audit_logs insert
     const auditChain = buildChain(Promise.resolve({ data: {}, error: null }));
+    // Stub products stock lookup
+    const productsChain = buildChain(
+      Promise.resolve({
+        data: [{ id: "prod-001", name: "Test Product", stock_quantity: 100 }],
+        error: null,
+      }),
+    );
 
     const productsChain = buildChain(
       Promise.resolve({
@@ -82,6 +89,7 @@ describe("transferService.createTransferRequest", () => {
       if (table === "transfer_line_items") return liChain;
       if (table === "notifications") return notifChain;
       if (table === "audit_logs") return auditChain;
+      if (table === "products") return productsChain;
       return buildChain(Promise.resolve({ data: null, error: null }));
     });
 
@@ -111,6 +119,12 @@ describe("transferService.createTransferRequest", () => {
       }),
     );
     const genericChain = buildChain(Promise.resolve({ data: {}, error: null }));
+    const productsChain = buildChain(
+      Promise.resolve({
+        data: [{ id: "prod-001", name: "Test Product", stock_quantity: 100 }],
+        error: null,
+      }),
+    );
 
     const productsChain = buildChain(
       Promise.resolve({

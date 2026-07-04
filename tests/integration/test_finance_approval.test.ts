@@ -55,7 +55,7 @@ describe("Finance Approval — transfer_request", () => {
         fromCallCount++;
         return fromCallCount === 1
           ? makeChain({ data: tr, error: null })
-          : makeChain({ data: null, error: null });
+          : makeChain({ data: [{ id: tr.id }], error: null });
       }
       // notifications + audit_logs
       return makeChain({ data: { id: "x" }, error: null });
@@ -88,7 +88,7 @@ describe("Finance Approval — transfer_request", () => {
         fromCallCount++;
         return fromCallCount === 1
           ? makeChain({ data: tr, error: null })
-          : makeChain({ data: null, error: null });
+          : makeChain({ data: [{ id: tr.id }], error: null });
       }
       return makeChain({ data: { id: "x" }, error: null });
     });
