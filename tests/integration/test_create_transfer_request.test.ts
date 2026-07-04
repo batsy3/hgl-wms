@@ -40,6 +40,8 @@ function buildChain(returnValue: unknown) {
   chain.range = vi.fn(() => chain);
   chain.gte = vi.fn(() => chain);
   chain.lte = vi.fn(() => chain);
+  chain.in = vi.fn(() => returnValue);
+  chain.maybeSingle = vi.fn(() => returnValue);
   return chain;
 }
 
@@ -66,9 +68,17 @@ describe("transferService.createTransferRequest", () => {
     // Stub audit_logs insert
     const auditChain = buildChain(Promise.resolve({ data: {}, error: null }));
 
+    const productsChain = buildChain(
+      Promise.resolve({
+        data: [{ id: "prod-001", name: "Test Product", stock_quantity: 100 }],
+        error: null,
+      }),
+    );
+
     mockFrom.mockImplementation((table: string) => {
       if (table === "app_settings") return settingsChain;
       if (table === "transfer_requests") return trChain;
+      if (table === "products") return productsChain;
       if (table === "transfer_line_items") return liChain;
       if (table === "notifications") return notifChain;
       if (table === "audit_logs") return auditChain;
@@ -102,9 +112,17 @@ describe("transferService.createTransferRequest", () => {
     );
     const genericChain = buildChain(Promise.resolve({ data: {}, error: null }));
 
+    const productsChain = buildChain(
+      Promise.resolve({
+        data: [{ id: "prod-001", name: "Test Product", stock_quantity: 100 }],
+        error: null,
+      }),
+    );
+
     mockFrom.mockImplementation((table: string) => {
       if (table === "app_settings") return settingsChain;
       if (table === "transfer_requests") return trChain;
+      if (table === "products") return productsChain;
       return genericChain;
     });
 

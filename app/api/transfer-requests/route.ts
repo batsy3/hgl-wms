@@ -2,6 +2,33 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, getUserFromAuthHeader } from "../../../lib/supabaseServer";
 import { createNotification } from "../../../lib/services/notificationService";
 
+const DEFAULT_FINANCE_THRESHOLD = 1000;
+
+/**
+ * Transfers valued at or above the threshold require Finance approval.
+ * The SBU-specific threshold (Admin → SBUs) wins over the global setting
+ * (Admin → Settings); if neither is configured, a conservative default applies.
+ */
+async function resolveFinanceThreshold(sbuId: string): Promise<number> {
+  const { data: sbu } = await supabaseAdmin
+    .from("sbus")
+    .select("finance_approval_threshold")
+    .eq("id", sbuId)
+    .maybeSingle();
+  const sbuThreshold = Number(sbu?.finance_approval_threshold);
+  if (sbu?.finance_approval_threshold != null && Number.isFinite(sbuThreshold)) {
+    return sbuThreshold;
+  }
+
+  const { data: setting } = await supabaseAdmin
+    .from("app_settings")
+    .select("value")
+    .eq("key", "finance_approval_threshold")
+    .maybeSingle();
+  const globalThreshold = Number(setting?.value);
+  return Number.isFinite(globalThreshold) ? globalThreshold : DEFAULT_FINANCE_THRESHOLD;
+}
+
 export async function POST(req: Request) {
   try {
     const user = await getUserFromAuthHeader(req);
@@ -15,7 +42,7 @@ export async function POST(req: Request) {
     const isUnitStaff = role === "UNIT_STAFF";
 
     const body = await req.json();
-    const { required_date, notes, lines, requesting_unit_id, estimated_value } = body;
+    const { required_date, notes, lines, requesting_unit_id } = body;
 
     if (!Array.isArray(lines) || lines.length === 0)
       return NextResponse.json({ error: "No line items" }, { status: 400 });
@@ -56,12 +83,15 @@ export async function POST(req: Request) {
     const productIds: string[] = lines.map((l: any) => l.product_id);
     const { data: products, error: stockError } = await supabaseAdmin
       .from("products")
-      .select("id, name, stock_quantity")
+      .select("id, name, stock_quantity, unit_cost")
       .in("id", productIds);
     if (stockError) throw stockError;
 
-    const stockMap = new Map<string, { name: string; stock_quantity: number }>(
-      (products ?? []).map((p: any) => [p.id, { name: p.name, stock_quantity: p.stock_quantity }]),
+    const stockMap = new Map<string, { name: string; stock_quantity: number; unit_cost: number }>(
+      (products ?? []).map((p: any) => [
+        p.id,
+        { name: p.name, stock_quantity: p.stock_quantity, unit_cost: Number(p.unit_cost) || 0 },
+      ]),
     );
 
     for (const line of lines) {
@@ -88,6 +118,14 @@ export async function POST(req: Request) {
       }
     }
 
+    // Compute the transfer value server-side from catalogue unit costs so the
+    // finance-approval decision cannot be influenced by a client-sent figure.
+    const estimatedValue = lines.reduce(
+      (sum: number, l: any) =>
+        sum + l.requested_quantity * (stockMap.get(l.product_id)?.unit_cost ?? 0),
+      0,
+    );
+
     // generate a simple reference (TRF-YYYY-NNNNN)
     const now = new Date();
     const year = now.getFullYear();
@@ -103,9 +141,11 @@ export async function POST(req: Request) {
       initialStatus = "PENDING_BU_APPROVAL";
       requiresFinanceApproval = true;
     } else {
-      // BU_MANAGER: always requires Finance approval before warehouse can issue
-      initialStatus = "PENDING_APPROVAL";
-      requiresFinanceApproval = true;
+      // BU_MANAGER: Finance approval only at/above the configured threshold;
+      // below it the transfer goes straight to the warehouse queue as PENDING
+      const threshold = await resolveFinanceThreshold(sbu_id);
+      requiresFinanceApproval = estimatedValue >= threshold;
+      initialStatus = requiresFinanceApproval ? "PENDING_APPROVAL" : "PENDING";
     }
 
     const { data: trData, error: trError } = await supabaseAdmin
@@ -119,7 +159,7 @@ export async function POST(req: Request) {
           status: initialStatus,
           required_date,
           notes,
-          estimated_value: estimated_value ?? null,
+          estimated_value: estimatedValue || null,
           requires_finance_approval: requiresFinanceApproval,
         },
       ])
