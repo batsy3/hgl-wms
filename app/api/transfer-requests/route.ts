@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, getUserFromAuthHeader } from "../../../lib/supabaseServer";
 import { createNotification } from "../../../lib/services/notificationService";
+import { buildTransferNotificationMessage } from "../../../lib/notifications/messages";
 
 const DEFAULT_FINANCE_THRESHOLD = 1000;
 
@@ -181,20 +182,32 @@ export async function POST(req: Request) {
 
     if (isUnitStaff) {
       // Notify BU_MANAGER(s) in the same SBU that a new request awaits their approval
+      const message = await buildTransferNotificationMessage({
+        transferId,
+        headline: `Transfer ${reference_number} requires your approval`,
+        actorId: user.id,
+        actorLabel: "Raised by",
+      });
       await createNotification({
         user_role: "BU_MANAGER",
         type: "transfer_request_pending_bu_approval",
-        message: `Transfer ${reference_number} requires your approval`,
+        message,
         related_entity_id: transferId,
         dispatchChannels: true,
       });
     } else {
       // BU_MANAGER-raised: notify warehouse (or finance if requires approval)
       const notifyRole = requiresFinanceApproval ? "FINANCE_MANAGER" : "WAREHOUSE_MANAGER";
+      const message = await buildTransferNotificationMessage({
+        transferId,
+        headline: `New transfer ${reference_number} raised`,
+        actorId: user.id,
+        actorLabel: "Raised by",
+      });
       await createNotification({
         user_role: notifyRole,
         type: "transfer_request_submitted",
-        message: `New transfer ${reference_number}`,
+        message,
         related_entity_id: transferId,
         dispatchChannels: true,
       });
